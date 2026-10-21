@@ -33,6 +33,11 @@ class PlayCb(CallbackData, prefix="play"):
     measurement_id: int
 
 
+class AccessCb(CallbackData, prefix="access"):
+    allow: bool
+    user_id: int
+
+
 def workout_kb(workout: Workout, *, showing_instructions: bool, with_done: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
@@ -119,4 +124,11 @@ def progress_kb(measurements: list[Measurement]) -> InlineKeyboardMarkup:
     for number, measurement in enumerate(measurements, start=1):
         builder.button(text=f"▶️ №{number}", callback_data=PlayCb(measurement_id=measurement.id))
     builder.adjust(4)
+    return builder.as_markup()
+
+
+def access_request_kb(user_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Разрешить", callback_data=AccessCb(allow=True, user_id=user_id))
+    builder.button(text="🚫 Отклонить", callback_data=AccessCb(allow=False, user_id=user_id))
     return builder.as_markup()

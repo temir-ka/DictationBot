@@ -1,7 +1,7 @@
 [project]
 name = "diction-bot"
 version = "0.1.0"
-description = "Личный Telegram-бот для ежедневной тренировки дикции"
+description = "Telegram-бот для ежедневной тренировки дикции"
 requires-python = ">=3.11"
 dependencies = [
     "aiogram>=3.13,<4",

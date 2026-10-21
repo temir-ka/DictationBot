@@ -8,7 +8,7 @@ from typing import Any
 import aiosqlite
 
 from bot.domain.measurement import Measurement
-from bot.domain.user import User
+from bot.domain.user import Member, User
 from bot.domain.workout import History, Workout
 
 
@@ -36,7 +36,10 @@ class Repo:
         return _row_to_user(row) if row else None
 
     async def list_users(self) -> list[User]:
-        async with self._conn.execute("SELECT * FROM users") as cursor:
+        """Только пользователи с доступом: отозванным не шлём напоминания."""
+        async with self._conn.execute(
+            "SELECT * FROM users WHERE id IN (SELECT id FROM allowed_users)"
+        ) as cursor:
             return [_row_to_user(row) for row in await cursor.fetchall()]
 
     async def create_user(self, user: User) -> None:
@@ -54,6 +57,46 @@ class Repo:
         row = _user_to_row(user)
         assignments = ", ".join(f"{key} = :{key}" for key in row if key != "id")
         await self._conn.execute(f"UPDATE users SET {assignments} WHERE id = :id", row)
+
+    # --- allowed_users ---
+
+    async def is_allowed(self, user_id: int) -> bool:
+        async with self._conn.execute(
+            "SELECT 1 FROM allowed_users WHERE id = ?", (user_id,)
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    async def allow_user(self, user_id: int, name: str | None, today: date) -> bool:
+        """Добавляет в белый список (или обновляет имя); True — если раньше доступа не было."""
+        existed = await self.is_allowed(user_id)
+        async with self._transaction():
+            await self._conn.execute(
+                "INSERT INTO allowed_users (id, name, added_at) VALUES (?, ?, ?)"
+                " ON CONFLICT (id) DO UPDATE SET name = COALESCE(excluded.name, name)",
+                (user_id, name, today.isoformat()),
+            )
+        return not existed
+
+    async def deny_user(self, user_id: int) -> bool:
+        """Убирает из белого списка, данные пользователя остаются; True — если он там был."""
+        async with self._transaction():
+            cursor = await self._conn.execute("DELETE FROM allowed_users WHERE id = ?", (user_id,))
+        return cursor.rowcount > 0
+
+    async def list_members(self) -> list[Member]:
+        async with self._conn.execute(
+            "SELECT a.id, a.name, a.added_at, u.current_streak FROM allowed_users a"
+            " LEFT JOIN users u ON u.id = a.id ORDER BY a.added_at, a.id"
+        ) as cursor:
+            return [
+                Member(
+                    id=row["id"],
+                    name=row["name"],
+                    added_at=date.fromisoformat(row["added_at"]),
+                    current_streak=row["current_streak"],
+                )
+                for row in await cursor.fetchall()
+            ]
 
     # --- completions ---
 

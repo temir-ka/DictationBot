@@ -1,10 +1,13 @@
 import asyncio
 import logging
+from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommandScopeChat
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from bot import texts
@@ -14,9 +17,10 @@ from bot.db.connection import connect
 from bot.db.repo import Repo
 from bot.handlers import routers
 from bot.keyboards import ensure_callbacks_fit
-from bot.middlewares import OwnerOnlyMiddleware
+from bot.middlewares import AccessMiddleware
 from bot.scheduler.jobs import midnight_job
 from bot.scheduler.setup import ReminderScheduler
+from bot.timeutils import local_today
 
 
 async def main() -> None:
@@ -28,6 +32,7 @@ async def main() -> None:
     ensure_callbacks_fit(content)
     conn = await connect(settings.db_path, settings.migrations_dir)
     repo = Repo(conn)
+    await repo.allow_user(settings.owner_id, None, local_today(settings.timezone))
 
     bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     reminders = ReminderScheduler(
@@ -44,13 +49,18 @@ async def main() -> None:
         reminders=reminders,
         settings=settings,
     )
-    dp.update.outer_middleware(OwnerOnlyMiddleware(settings.owner_id))
+    dp.update.outer_middleware(AccessMiddleware(repo, settings.owner_id))
     dp.include_routers(*routers)
 
     try:
         await midnight_job(bot, repo, content, settings.timezone)  # на случай, если бот был выключен в полночь
         await reminders.start()
         await bot.set_my_commands(texts.COMMANDS)
+        with suppress(TelegramBadRequest):  # владелец ещё ни разу не писал боту
+            await bot.set_my_commands(
+                texts.COMMANDS + texts.ADMIN_COMMANDS,
+                scope=BotCommandScopeChat(chat_id=settings.owner_id),
+            )
         await dp.start_polling(bot)
     finally:
         reminders.shutdown()

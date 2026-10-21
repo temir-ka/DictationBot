@@ -1,4 +1,7 @@
+from contextlib import suppress
+
 from aiogram import Bot
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -63,3 +66,7 @@ class ReminderScheduler:
             coalesce=True,
             misfire_grace_time=3600,
         )
+
+    def unschedule_user(self, user_id: int) -> None:
+        with suppress(JobLookupError):
+            self._scheduler.remove_job(f"reminder:{user_id}")

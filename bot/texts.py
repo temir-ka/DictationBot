@@ -8,7 +8,7 @@ from aiogram.types import BotCommand
 
 from bot.content.models import ControlText, Exercise, TongueTwister
 from bot.domain.measurement import Measurement, days_until_measurement, is_measurement_due
-from bot.domain.user import User
+from bot.domain.user import Member, User
 from bot.domain.workout import Workout
 
 def escape(text: str) -> str:
@@ -27,6 +27,13 @@ COMMANDS = [
     BotCommand(command="schedule", description="Время напоминания"),
     BotCommand(command="cancel", description="Прервать текущий диалог"),
     BotCommand(command="help", description="Список команд"),
+]
+
+# Видны только владельцу (scope его чата).
+ADMIN_COMMANDS = [
+    BotCommand(command="users", description="Кто имеет доступ"),
+    BotCommand(command="allow", description="Дать доступ: /allow ID"),
+    BotCommand(command="deny", description="Забрать доступ: /deny ID"),
 ]
 
 
@@ -307,3 +314,49 @@ def sticker_file_id(file_id: str) -> str:
         "Добавь его в <code>data/stickers.json</code> в нужный список "
         "(completed, milestone, measurement_saved, streak_lost) и перезапусти бота."
     )
+
+
+# --- доступ ---
+
+ACCESS_REQUESTED = (
+    "🔒 Это закрытый бот. Я отправил владельцу запрос на доступ — "
+    "как только его одобрят, я тебе напишу."
+)
+ACCESS_GRANTED = "🎉 Доступ открыт! Жми /start, чтобы начать."
+ALLOW_USAGE = "Формат: <code>/allow 123456789</code> — telegram ID (узнать можно у @userinfobot)."
+DENY_USAGE = "Формат: <code>/deny 123456789</code>"
+CANT_DENY_OWNER = "🙅 Владельца из списка убрать нельзя."
+ACCESS_REJECTED = "🚫 Отклонено"
+
+
+def display_name(full_name: str, username: str | None) -> str:
+    return f"{full_name} (@{username})" if username else full_name
+
+
+def _member_label(user_id: int, name: str | None) -> str:
+    return f"{escape(name)} (<code>{user_id}</code>)" if name else f"<code>{user_id}</code>"
+
+
+def access_request(user_id: int, name: str) -> str:
+    return f"🙋 Просит доступ: {_member_label(user_id, name)}"
+
+
+def access_allowed(user_id: int, name: str | None, *, newly: bool) -> str:
+    if not newly:
+        return f"👌 У {_member_label(user_id, name)} доступ уже был."
+    return f"✅ Доступ выдан: {_member_label(user_id, name)}"
+
+
+def access_denied(user_id: int, *, existed: bool) -> str:
+    if not existed:
+        return f"🤷 <code>{user_id}</code> и так нет в списке."
+    return f"🚫 Доступ забран: <code>{user_id}</code>. Данные сохранены — /allow вернёт всё как было."
+
+
+def members(items: list[Member]) -> str:
+    lines = [f"<b>👥 Доступ ({len(items)})</b>"]
+    for m in items:
+        status = "не нажал /start" if m.current_streak is None else f"🔥 {m.current_streak}"
+        lines.append(f"• {_member_label(m.id, m.name)} — {status}")
+    lines.append("\nУбрать: <code>/deny ID</code>")
+    return "\n".join(lines)
