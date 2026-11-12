@@ -35,8 +35,9 @@ def test_blocks_go_1_to_5_with_reading_last(text):
 
 def test_all_instructions_are_shown_in_full(content, text, workout):
     for block in content.routine:
-        for line in block.instructions:
-            assert texts.escape(line) in text
+        assert f"<i>{texts.escape(block.instructions)}</i>" in text
+        drills = "\n".join(texts.escape(line) for line in block.drills)
+        assert f"<blockquote>{drills}</blockquote>" in text
     assert texts.escape(workout.reading.text) in text
 
 
@@ -89,9 +90,10 @@ def test_stickers_and_old_pools_are_optional(tmp_path):
     "broken",
     [
         {"blocks": []},
-        {"blocks": [{"id": "a", "title": "A", "duration_sec": 60, "instructions": []}]},
-        {"blocks": [{"id": "a", "title": "A", "duration_sec": 0, "instructions": ["x"]}]},
-        {"blocks": [{"id": "a", "title": "A", "duration_sec": 60, "instructions": ["x"]}] * 2},
+        {"blocks": [{"id": "a", "title": "A", "duration_sec": 60, "instructions": "x", "drills": []}]},
+        {"blocks": [{"id": "a", "title": "A", "duration_sec": 60, "instructions": "", "drills": ["y"]}]},
+        {"blocks": [{"id": "a", "title": "A", "duration_sec": 0, "instructions": "x", "drills": ["y"]}]},
+        {"blocks": [{"id": "a", "title": "A", "duration_sec": 60, "instructions": "x", "drills": ["y"]}] * 2},
     ],
 )
 def test_broken_routine_fails_at_startup(tmp_path, broken):

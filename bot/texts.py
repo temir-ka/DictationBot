@@ -113,9 +113,14 @@ def minutes(seconds: int) -> str:
 
 
 def format_block(number: int, block: RoutineBlock) -> str:
-    lines = [f"{NUMBERS[number - 1]} <b>{escape(block.title)}</b> · {minutes(block.duration_sec)}"]
-    lines += [escape(line) for line in block.instructions]
-    return "\n".join(lines)
+    drills = "\n".join(escape(line) for line in block.drills)
+    return "\n".join(
+        [
+            f"{NUMBERS[number - 1]} <b>{escape(block.title)}</b> · {minutes(block.duration_sec)}",
+            f"<i>{escape(block.instructions)}</i>",
+            f"<blockquote>{drills}</blockquote>",
+        ]
+    )
 
 
 def format_workout(workout: Workout, routine: list[RoutineBlock]) -> str:
@@ -124,9 +129,9 @@ def format_workout(workout: Workout, routine: list[RoutineBlock]) -> str:
     reading = "\n".join(
         [
             f"{NUMBERS[len(routine)]} <b>Чтение вслух</b> · ≈3–4 мин — главный блок",
-            "Первую минуту читай с карандашом или пробкой в зубах (закусить за клыки), затем без "
-            "неё. Читай медленно и чётко, контролируй каждое слово, особенно окончания "
-            "(не «Наташ», а «Наташа»).",
+            "<i>Первую минуту — с карандашом или пробкой в зубах (закусить за клыки), затем без "
+            "неё. Медленно и чётко, контролируй каждое слово, особенно окончания "
+            "(не «Наташ», а «Наташа»).</i>",
             f"<blockquote>{escape(workout.reading.text)}</blockquote>",
         ]
     )

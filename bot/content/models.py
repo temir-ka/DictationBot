@@ -2,14 +2,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class RoutineBlock(BaseModel):
-    """Фиксированный блок ежедневного сета; instructions — строки, выводятся каждая с новой строки."""
+    """Фиксированный блок ежедневного сета.
+
+    instructions — пояснение, как делать; drills — что произносить/делать, по строке на упражнение
+    (в сообщении выделяются цитатой, чтобы глаз сразу их находил).
+    """
 
     model_config = ConfigDict(frozen=True)
 
     id: str
     title: str
     duration_sec: int = Field(ge=1)
-    instructions: list[str] = Field(min_length=1)
+    instructions: str = Field(min_length=1)
+    drills: list[str] = Field(min_length=1)
 
 
 class DailyRoutine(BaseModel):

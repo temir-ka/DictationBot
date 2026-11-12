@@ -34,7 +34,8 @@ cp .env.example .env                          # вписать BOT_TOKEN и OWNE
 Всё в `data/`. Формат проверяется при старте: ошибка в JSON остановит бот с указанием файла.
 
 - **`daily_routine.json`** — объект `{"_readme": ..., "blocks": [...]}`, блоки 1–4 сета в порядке показа:
-  `{id, title, duration_sec, instructions}`, `instructions` — список строк (каждая с новой строки).
+  `{id, title, duration_sec, instructions, drills}`: `instructions` — пояснение (выводится курсивом),
+  `drills` — что произносить, по строке на упражнение (выводится цитатой, чтобы сразу бросалось в глаза).
 - **`reading_texts.json`** — объект `{"_readme": ..., "texts": [{id, text}, ...]}`, отрывки ~100-150 слов.
 - **`control_text.json`** — `{id, text}`, один текст для всех замеров.
 - `articulation_exercises.json` и `tongue_twisters.json` — старые пулы, бот их больше не читает.
