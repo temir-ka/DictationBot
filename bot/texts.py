@@ -7,6 +7,7 @@ from datetime import date
 from aiogram.types import BotCommand
 
 from bot.content.models import ControlText, RoutineBlock
+from bot.domain.digest import WeekSummary
 from bot.domain.measurement import Measurement, days_until_measurement, is_measurement_due
 from bot.domain.user import Member, User
 from bot.domain.workout import Workout
@@ -22,6 +23,7 @@ COMMANDS = [
     BotCommand(command="progress", description="Замеры и голосовые"),
     BotCommand(command="measure", description="Пройти замер"),
     BotCommand(command="schedule", description="Время напоминания"),
+    BotCommand(command="evening", description="Вечернее напоминание"),
     BotCommand(command="cancel", description="Прервать текущий диалог"),
     BotCommand(command="help", description="Список команд"),
 ]
@@ -49,8 +51,9 @@ def days(n: int) -> str:
     return f"{n} {plural(n, ('день', 'дня', 'дней'))}"
 
 
-def hhmm(user: User) -> str:
-    return user.reminder_time.strftime("%H:%M")
+def hhmm(user: User, field: str = "reminder_time") -> str:
+    value = getattr(user, field)
+    return value.strftime("%H:%M") if value else "—"
 
 
 # --- общие ---
@@ -64,7 +67,7 @@ WELCOME = (
     "🗓 Каждый день — короткий сет минут на 12: дыхание, разминка, согласные, окончания "
     "и чтение вслух.\n"
     "📏 Раз в 2 недели — замер: читаешь один и тот же контрольный текст и записываешь "
-    "голосовое, чтобы слышать прогресс.\n\n"
+    "голосовое, а я присылаю твой первый замер — чтобы слышать прогресс.\n\n"
     "⏰ Во сколько присылать напоминание? Напиши время в формате ЧЧ:ММ, например 08:30."
 )
 BAD_TIME = "🤔 Не понял время. Напиши в формате ЧЧ:ММ, например 08:30."
@@ -76,16 +79,18 @@ HELP = (
     "📈 /progress — все замеры, можно переслушать голосовые\n"
     "📏 /measure — пройти замер (раз в 14 дней)\n"
     "⏰ /schedule — поменять время напоминания\n"
+    "🌙 /evening — вечернее напоминание, если сет не сделан\n"
     "✖️ /cancel — прервать текущий диалог\n\n"
     "Пропустил день — стрик обнуляется. Больше ничего не сгорает 😌"
 )
 
 
 def registered(user: User) -> str:
-    return (
-        f"🎉 Готово! Напоминание — каждый день в {hhmm(user)}.\n\n"
-        "Перед стартом стоит записать стартовый замер — потом будет с чем сравнить."
-    )
+    lines = [f"🎉 Готово! Напоминание — каждый день в {hhmm(user)}."]
+    if user.evening_active:
+        lines.append(f"🌙 Если к {hhmm(user, 'evening_time')} сет не сделан — напомню ещё раз (/evening).")
+    lines += ["", "Перед стартом стоит записать стартовый замер — потом будет с чем сравнить."]
+    return "\n".join(lines)
 
 
 def welcome_back(user: User) -> str:
@@ -194,6 +199,35 @@ def streak_lost(previous_streak: int) -> str:
     )
 
 
+SNOOZED = "⏰ Ок, напомню в {at:%H:%M}"
+
+
+def evening(user: User) -> str:
+    if user.current_streak:
+        head = f"🌙 Сегодня ещё без тренировки — 🔥 стрик {days(user.current_streak)} под угрозой!"
+    else:
+        head = "🌙 Сегодня ещё без тренировки."
+    return f"{head}\nХотя бы чтение вслух — это 4 минуты, и день засчитан 💪"
+
+
+def weekly_digest(user: User, week: WeekSummary, days_to_measurement: int) -> str:
+    lines = [f"📊 <b>Итоги недели</b> · {week.start:%d.%m}–{week.end:%d.%m}", ""]
+    lines.append(f"✅ Сетов: {week.done} из {week.days}")
+    lines.append(f"🔥 Стрик: {days(user.current_streak)} (лучший: {days(user.best_streak)})")
+    if days_to_measurement == 0:
+        lines.append("📏 Пора делать замер: /measure")
+    else:
+        lines.append(f"📏 До замера {days(days_to_measurement)}")
+    lines.append("")
+    if week.done == week.days:
+        lines.append("🏆 Идеальная неделя, ни одного пропуска!")
+    elif not week.done_today:
+        lines.append("Сегодняшний сет ещё можно успеть 👉 /today")
+    else:
+        lines.append("Новая неделя — новый шанс на 7 из 7 💪")
+    return "\n".join(lines)
+
+
 # --- стрик ---
 
 def streak(user: User, today: date) -> str:
@@ -218,7 +252,44 @@ def schedule(user: User) -> str:
 
 
 def time_updated(user: User) -> str:
-    return f"⏰ Готово, напоминание теперь в {hhmm(user)}."
+    text = f"⏰ Готово, напоминание теперь в {hhmm(user)}."
+    if user.evening_time and not user.evening_active:
+        text += (
+            f"\n🌙 Вечернее ({hhmm(user, 'evening_time')}) теперь раньше основного и приходить "
+            "не будет — поменять: /evening"
+        )
+    return text
+
+
+def evening_settings(user: User) -> str:
+    if user.evening_time is None:
+        current = "🌙 Вечернее напоминание выключено."
+    elif user.evening_active:
+        current = f"🌙 Если сет не сделан, в {hhmm(user, 'evening_time')} напомню ещё раз."
+    else:
+        current = (
+            f"🌙 Вечернее напоминание стоит на {hhmm(user, 'evening_time')}, но это не позже "
+            f"основного ({hhmm(user)}), поэтому оно не приходит."
+        )
+    return (
+        f"{current}\n\n"
+        "Напиши новое время в формате ЧЧ:ММ или «выкл», чтобы отключить. "
+        "/cancel — оставить как есть."
+    )
+
+
+def evening_updated(user: User) -> str:
+    if user.evening_time is None:
+        return "🌙 Вечернее напоминание выключено. Включить снова: /evening"
+    if not user.evening_active:
+        return (
+            f"🌙 Сохранил {hhmm(user, 'evening_time')}, но это не позже основного напоминания "
+            f"({hhmm(user)}) — так оно приходить не будет."
+        )
+    return f"🌙 Готово, вечернее напоминание в {hhmm(user, 'evening_time')}."
+
+
+BAD_EVENING_TIME = "🤔 Не понял. Напиши время в формате ЧЧ:ММ, например 21:00, или «выкл»."
 
 
 # --- замеры ---
@@ -273,6 +344,10 @@ def progress(measurements: list[Measurement]) -> str:
             lines.append(f"   <i>{escape(m.notes)}</i>")
     lines += ["", "🎧 Нажми на номер, чтобы переслушать голосовое."]
     return "\n".join(lines)
+
+
+def then_caption(m: Measurement) -> str:
+    return f"🕰 Так было на первом замере, {m.date:%d.%m.%Y}. Сравни с сегодняшним 👆"
 
 
 def voice_caption(number: int, m: Measurement) -> str:

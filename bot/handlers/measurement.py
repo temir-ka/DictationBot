@@ -136,9 +136,12 @@ async def _finish(
         )
         await repo.add_measurement(measurement, replace(user, last_measurement_at=today))
     await state.clear()
-    number = len(await repo.list_measurements(user_id))
-    await bot.send_message(user_id, texts.measurement_saved(number))
+    measurements = await repo.list_measurements(user_id)
+    await bot.send_message(user_id, texts.measurement_saved(len(measurements)))
     await send_sticker(bot, user_id, content.stickers.measurement_saved)
+    if len(measurements) > 1:  # «было → стало»: сразу даём послушать самый первый замер
+        first = measurements[0]
+        await bot.send_voice(user_id, first.voice_file_id, caption=texts.then_caption(first))
 
 
 # --- всё остальное во время записи голосового ---

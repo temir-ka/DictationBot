@@ -116,6 +116,15 @@ class Repo:
             rows = await cursor.fetchall()
         return History(reading_ids=tuple(row["reading_text_id"] for row in rows))
 
+    async def count_completions(self, user_id: int, since: date, until: date) -> int:
+        """Сколько сетов выполнено с since по until включительно."""
+        async with self._conn.execute(
+            "SELECT COUNT(*) FROM completions WHERE user_id = ? AND date BETWEEN ? AND ?",
+            (user_id, since.isoformat(), until.isoformat()),
+        ) as cursor:
+            (count,) = await cursor.fetchone()
+        return count
+
     # --- measurements ---
 
     async def add_measurement(self, measurement: Measurement, user: User) -> int:
@@ -157,6 +166,7 @@ def _user_to_row(user: User) -> dict[str, Any]:
         "last_completed_at": _dump_date(user.last_completed_at),
         "reminder_time": user.reminder_time.strftime("%H:%M"),
         "last_measurement_at": _dump_date(user.last_measurement_at),
+        "evening_time": user.evening_time.strftime("%H:%M") if user.evening_time else None,
     }
 
 
@@ -168,6 +178,7 @@ def _row_to_user(row: aiosqlite.Row) -> User:
         best_streak=row["best_streak"],
         last_completed_at=_load_date(row["last_completed_at"]),
         last_measurement_at=_load_date(row["last_measurement_at"]),
+        evening_time=time.fromisoformat(row["evening_time"]) if row["evening_time"] else None,
     )
 
 

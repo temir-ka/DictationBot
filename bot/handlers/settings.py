@@ -1,4 +1,4 @@
-"""/schedule — смена времени напоминания."""
+"""/schedule — время напоминания, /evening — вечернее напоминание."""
 
 from dataclasses import replace
 
@@ -19,6 +19,10 @@ router = Router(name="settings")
 
 class ScheduleEdit(StatesGroup):
     reminder_time = State()
+    evening_time = State()
+
+
+OFF_WORDS = {"выкл", "выключить", "off", "нет", "-"}
 
 
 @router.message(Command("schedule"))
@@ -47,3 +51,33 @@ async def on_new_time(
     reminders.schedule_user(user)
     await state.clear()
     await message.answer(texts.time_updated(user))
+
+
+@router.message(Command("evening"))
+async def cmd_evening(message: Message, state: FSMContext, repo: Repo) -> None:
+    user = await load_user(message, repo)
+    if user is None:
+        return
+    await state.set_state(ScheduleEdit.evening_time)
+    await message.answer(texts.evening_settings(user))
+
+
+@router.message(ScheduleEdit.evening_time, NOT_COMMAND)
+async def on_evening_time(
+    message: Message, state: FSMContext, repo: Repo, reminders: ReminderScheduler
+) -> None:
+    text = message.text.strip().lower()
+    turn_off = text in OFF_WORDS
+    evening_time = None if turn_off else parse_time(text)
+    if evening_time is None and not turn_off:
+        await message.answer(texts.BAD_EVENING_TIME)
+        return
+    async with repo.lock:
+        user = await load_user(message, repo)
+        if user is None:
+            return
+        user = replace(user, evening_time=evening_time)
+        await repo.save_user(user)
+    reminders.schedule_user(user)
+    await state.clear()
+    await message.answer(texts.evening_updated(user))

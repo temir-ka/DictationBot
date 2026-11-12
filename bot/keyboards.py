@@ -15,6 +15,10 @@ class StepCb(CallbackData, prefix="step"):
     step: int  # на какой шаг перейти (с нуля)
 
 
+class SnoozeCb(CallbackData, prefix="snooze"):
+    day: str
+
+
 class MeasureCb(CallbackData, prefix="measure"):
     action: str  # start | later | skip_notes
 
@@ -28,8 +32,9 @@ class AccessCb(CallbackData, prefix="access"):
     user_id: int
 
 
-def step_kb(workout: Workout, step: int, total: int) -> InlineKeyboardMarkup:
-    """Первый шаг: «Дальше» + «сразу к чтению»; средние: «Назад»/«Дальше»; последний: «Назад»/«Выполнил»."""
+def step_kb(workout: Workout, step: int, total: int, *, snooze: bool = False) -> InlineKeyboardMarkup:
+    """Первый шаг: «Дальше» + «сразу к чтению» (+ «через час» у напоминания);
+    средние: «Назад»/«Дальше»; последний: «Назад»/«Выполнил»."""
     day = workout.date.isoformat()
     builder = InlineKeyboardBuilder()
     if step > 0:
@@ -40,8 +45,25 @@ def step_kb(workout: Workout, step: int, total: int) -> InlineKeyboardMarkup:
         builder.button(text="Выполнил ✅", callback_data=DoneCb(day=day))
     if step == 0:
         builder.button(text="⏩ Нет времени — сразу к чтению", callback_data=StepCb(day=day, step=total - 1))
+        if snooze:
+            builder.button(text="⏰ Напомни через час", callback_data=SnoozeCb(day=day))
     builder.adjust(2 if step > 0 else 1)
     return builder.as_markup()
+
+
+def evening_kb(workout: Workout, total: int) -> InlineKeyboardMarkup:
+    day = workout.date.isoformat()
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⏩ Сразу к чтению", callback_data=StepCb(day=day, step=total - 1))
+    builder.button(text="🎯 Весь сет", callback_data=StepCb(day=day, step=0))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def without_snooze(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
+    prefix = SnoozeCb.__prefix__ + SnoozeCb.__separator__
+    rows = [[b for b in row if not (b.callback_data or "").startswith(prefix)] for row in markup.inline_keyboard]
+    return InlineKeyboardMarkup(inline_keyboard=[row for row in rows if row])
 
 
 def time_presets_kb() -> ReplyKeyboardMarkup:

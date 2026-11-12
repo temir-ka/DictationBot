@@ -23,12 +23,15 @@ async def build_today(user: User, repo: Repo, content: Content, today: date) -> 
     return build_workout(user.id, today, content, history)
 
 
-async def send_workout(bot: Bot, user: User, repo: Repo, content: Content, today: date) -> None:
+async def send_workout(
+    bot: Bot, user: User, repo: Repo, content: Content, today: date, *, snooze: bool = False
+) -> None:
+    """Первый шаг сета; snooze — кнопка «Напомни через час» (только у напоминания)."""
     workout = await build_today(user, repo, content, today)
     await bot.send_message(
         user.id,
         texts.format_step(workout, content.routine, 0),
-        reply_markup=kb.step_kb(workout, 0, texts.step_count(content.routine)),
+        reply_markup=kb.step_kb(workout, 0, texts.step_count(content.routine), snooze=snooze),
     )
     if is_measurement_due(user, today):
         await bot.send_message(

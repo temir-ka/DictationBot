@@ -6,7 +6,6 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommandScopeChat
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -14,6 +13,7 @@ from bot import texts
 from bot.config import Settings
 from bot.content.loader import load_content
 from bot.db.connection import connect
+from bot.db.fsm import SQLiteStorage
 from bot.db.repo import Repo
 from bot.handlers import routers
 from bot.middlewares import AccessMiddleware
@@ -30,6 +30,7 @@ async def main() -> None:
     content = load_content(settings.data_dir)
     conn = await connect(settings.db_path, settings.migrations_dir)
     repo = Repo(conn)
+    storage = SQLiteStorage(await connect(settings.db_path, settings.migrations_dir))
     await repo.allow_user(settings.owner_id, None, local_today(settings.timezone))
 
     bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -41,7 +42,7 @@ async def main() -> None:
         timezone=settings.timezone,
     )
     dp = Dispatcher(
-        storage=MemoryStorage(),
+        storage=storage,
         repo=repo,
         content=content,
         reminders=reminders,
@@ -63,6 +64,7 @@ async def main() -> None:
     finally:
         reminders.shutdown()
         await conn.close()
+        await storage.close()
         await bot.session.close()
 
 
