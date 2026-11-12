@@ -10,6 +10,11 @@ class DoneCb(CallbackData, prefix="done"):
     day: str  # ISO-дата сета: кнопка под вчерашним напоминанием не засчитывает сегодняшний день
 
 
+class StepCb(CallbackData, prefix="step"):
+    day: str  # ISO-дата сета: шаги вчерашнего сообщения не листаются
+    step: int  # на какой шаг перейти (с нуля)
+
+
 class MeasureCb(CallbackData, prefix="measure"):
     action: str  # start | later | skip_notes
 
@@ -23,9 +28,19 @@ class AccessCb(CallbackData, prefix="access"):
     user_id: int
 
 
-def workout_kb(workout: Workout) -> InlineKeyboardMarkup:
+def step_kb(workout: Workout, step: int, total: int) -> InlineKeyboardMarkup:
+    """Первый шаг: «Дальше» + «сразу к чтению»; средние: «Назад»/«Дальше»; последний: «Назад»/«Выполнил»."""
+    day = workout.date.isoformat()
     builder = InlineKeyboardBuilder()
-    builder.button(text="Выполнил ✅", callback_data=DoneCb(day=workout.date.isoformat()))
+    if step > 0:
+        builder.button(text="◀️ Назад", callback_data=StepCb(day=day, step=step - 1))
+    if step < total - 1:
+        builder.button(text="Дальше ▶️", callback_data=StepCb(day=day, step=step + 1))
+    else:
+        builder.button(text="Выполнил ✅", callback_data=DoneCb(day=day))
+    if step == 0:
+        builder.button(text="⏩ Нет времени — сразу к чтению", callback_data=StepCb(day=day, step=total - 1))
+    builder.adjust(2 if step > 0 else 1)
     return builder.as_markup()
 
 

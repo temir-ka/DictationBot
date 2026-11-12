@@ -100,7 +100,10 @@ def welcome_back(user: User) -> str:
 ALREADY_DONE_TODAY = "✅ Сегодня уже выполнено! Следующий сет — завтра 🌙"
 STALE_REMINDER = "⏳ Это сет за другой день. Сегодняшний: /today"
 NUMBERS = ("1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣")
-NO_TIME = "Нет времени? Прочитай хотя бы блок 5 и нажми «Выполнил ✅» — день засчитан."
+READING_INSTRUCTIONS = (
+    "Первую минуту — с карандашом или пробкой в зубах (закусить за клыки), затем без неё. "
+    "Медленно и чётко, контролируй каждое слово, особенно окончания (не «Наташ», а «Наташа»)."
+)
 
 
 def minutes(seconds: int) -> str:
@@ -112,38 +115,41 @@ def minutes(seconds: int) -> str:
     return f"≈{whole},5 мин" if half else f"≈{whole} мин"
 
 
-def format_block(number: int, block: RoutineBlock) -> str:
-    drills = "\n".join(escape(line) for line in block.drills)
+def step_count(routine: list[RoutineBlock]) -> int:
+    """Фиксированные блоки + чтение вслух последним шагом."""
+    return len(routine) + 1
+
+
+def _block(number: int, title: str, duration: str, instructions: str, material: str) -> str:
     return "\n".join(
         [
-            f"{NUMBERS[number - 1]} <b>{escape(block.title)}</b> · {minutes(block.duration_sec)}",
-            f"<i>{escape(block.instructions)}</i>",
-            f"<blockquote>{drills}</blockquote>",
+            f"{NUMBERS[number - 1]} <b>{escape(title)}</b> · {duration}",
+            f"<i>{escape(instructions)}</i>",
+            f"<blockquote>{material}</blockquote>",
         ]
     )
 
 
-def format_workout(workout: Workout, routine: list[RoutineBlock]) -> str:
-    """Сет на день: фиксированные блоки из daily_routine.json и чтение вслух последним."""
-    blocks = [format_block(number, block) for number, block in enumerate(routine, start=1)]
-    reading = "\n".join(
-        [
-            f"{NUMBERS[len(routine)]} <b>Чтение вслух</b> · ≈3–4 мин — главный блок",
-            "<i>Первую минуту — с карандашом или пробкой в зубах (закусить за клыки), затем без "
-            "неё. Медленно и чётко, контролируй каждое слово, особенно окончания "
-            "(не «Наташ», а «Наташа»).</i>",
-            f"<blockquote>{escape(workout.reading.text)}</blockquote>",
-        ]
-    )
-    return "\n\n".join(
-        [
-            f"🎯 <b>Сет на {workout.date:%d.%m}</b> · ≈12 минут",
-            *blocks,
-            reading,
-            "Когда закончишь — жми кнопку 👇",
-            f"⏱ {NO_TIME}",
-        ]
-    )
+def format_step(workout: Workout, routine: list[RoutineBlock], step: int) -> str:
+    """Один шаг сета (step — с нуля): шапка, блок, на последнем шаге — подсказка про кнопку."""
+    total = step_count(routine)
+    is_reading = step == total - 1
+    if is_reading:
+        block = _block(
+            total, "Чтение вслух", "≈3–4 мин — главный блок",
+            READING_INSTRUCTIONS, escape(workout.reading.text),
+        )
+    else:
+        b = routine[step]
+        drills = "\n".join(escape(line) for line in b.drills)
+        block = _block(step + 1, b.title, minutes(b.duration_sec), b.instructions, drills)
+    header = f"🎯 <b>Сет на {workout.date:%d.%m}</b> · шаг {step + 1} из {total}"
+    if step == 0:
+        header += " · всего ≈12 минут"
+    parts = [header, block]
+    if is_reading:
+        parts.append("Когда закончишь — жми кнопку 👇")
+    return "\n\n".join(parts)
 
 
 PRAISE = (

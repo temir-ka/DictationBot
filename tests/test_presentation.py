@@ -18,42 +18,73 @@ def workout(content):
     return build_workout(1, TODAY, content, History())
 
 
-@pytest.fixture
-def text(content, workout):
-    return texts.format_workout(workout, content.routine)
+def steps(content, workout) -> list[str]:
+    total = texts.step_count(content.routine)
+    return [texts.format_step(workout, content.routine, i) for i in range(total)]
 
 
 def test_routine_is_fixed_and_in_order(content):
     assert [b.id for b in content.routine] == ["breathing", "warmup", "consonants", "endings"]
 
 
-def test_blocks_go_1_to_5_with_reading_last(text):
+def test_five_steps_one_block_each(content, workout):
     titles = ["Дыхание", "Разминка", "Согласные", "Окончания", "Чтение вслух"]
-    positions = [text.index(f"{n} <b>{t}</b>") for n, t in zip(texts.NUMBERS, titles)]
-    assert positions == sorted(positions)
+    all_steps = steps(content, workout)
+    assert len(all_steps) == 5
+    for i, text in enumerate(all_steps):
+        assert f"шаг {i + 1} из 5" in text
+        shown = [t for t in titles if f"<b>{t}</b>" in text]
+        assert shown == [titles[i]]
 
 
-def test_all_instructions_are_shown_in_full(content, text, workout):
-    for block in content.routine:
+def test_block_shows_instructions_and_drills_as_quote(content, workout):
+    for block, text in zip(content.routine, steps(content, workout)):
         assert f"<i>{texts.escape(block.instructions)}</i>" in text
         drills = "\n".join(texts.escape(line) for line in block.drills)
         assert f"<blockquote>{drills}</blockquote>" in text
-    assert texts.escape(workout.reading.text) in text
 
 
-def test_no_time_hint_is_the_last_line(text):
-    assert text.endswith(texts.NO_TIME)
+def test_reading_is_last_step(content, workout):
+    *first, last = steps(content, workout)
+    assert f"<blockquote>{texts.escape(workout.reading.text)}</blockquote>" in last
+    assert last.endswith("жми кнопку 👇")
+    assert all(workout.reading.text[:30] not in t for t in first)
 
 
-def test_old_blocks_are_gone(text):
-    for removed in ("Пересказ", "тпру", "Скороговорка"):
-        assert removed not in text
+def test_old_blocks_are_gone(content, workout):
+    for text in steps(content, workout):
+        for removed in ("Пересказ", "тпру", "Скороговорка"):
+            assert removed not in text
 
 
-def test_message_fits_telegram_limit(content):
+def test_steps_fit_telegram_limit(content):
     longest = max(content.reading_texts, key=lambda t: len(t.text))
     workout = Workout(date=TODAY, reading=longest)
-    assert len(texts.format_workout(workout, content.routine)) < 4096
+    assert all(len(t) < 4096 for t in steps(content, workout))
+
+
+def _buttons(markup):
+    return [(b.text, b.callback_data) for row in markup.inline_keyboard for b in row]
+
+
+def test_first_step_buttons(workout):
+    buttons = _buttons(kb.step_kb(workout, 0, 5))
+    assert [t for t, _ in buttons] == ["Дальше ▶️", "⏩ Нет времени — сразу к чтению"]
+    assert kb.StepCb.unpack(buttons[0][1]).step == 1
+    assert kb.StepCb.unpack(buttons[1][1]).step == 4
+
+
+def test_middle_step_buttons(workout):
+    buttons = _buttons(kb.step_kb(workout, 2, 5))
+    assert [t for t, _ in buttons] == ["◀️ Назад", "Дальше ▶️"]
+    assert [kb.StepCb.unpack(d).step for _, d in buttons] == [1, 3]
+
+
+def test_last_step_has_done(workout):
+    buttons = _buttons(kb.step_kb(workout, 4, 5))
+    assert [t for t, _ in buttons] == ["◀️ Назад", "Выполнил ✅"]
+    assert kb.DoneCb.unpack(buttons[1][1]).day == TODAY.isoformat()
+    assert all(len(d.encode()) <= 64 for _, d in buttons)
 
 
 @pytest.mark.parametrize(
@@ -62,13 +93,6 @@ def test_message_fits_telegram_limit(content):
 )
 def test_minutes_wording(seconds, expected):
     assert texts.minutes(seconds) == expected
-
-
-def test_only_done_button(workout):
-    markup = kb.workout_kb(workout)
-    [[button]] = markup.inline_keyboard
-    assert button.text == "Выполнил ✅"
-    assert kb.DoneCb.unpack(button.callback_data).day == TODAY.isoformat()
 
 
 def test_milestone_is_announced_only_on_round_streaks():

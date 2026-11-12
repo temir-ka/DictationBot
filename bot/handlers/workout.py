@@ -1,4 +1,7 @@
+from contextlib import suppress
+
 from aiogram import Bot, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
@@ -62,3 +65,31 @@ async def on_done(
     await send_sticker(
         bot, user.id, (is_milestone and stickers.milestone) or stickers.completed
     )
+
+
+@router.callback_query(kb.StepCb.filter())
+async def on_step(
+    callback: CallbackQuery,
+    callback_data: kb.StepCb,
+    repo: Repo,
+    content: Content,
+    settings: Settings,
+) -> None:
+    """Листает шаги сета, перерисовывая то же сообщение."""
+    message = callback.message
+    today = local_today(settings.timezone)
+    if callback_data.day != today.isoformat() or not isinstance(message, Message):
+        await callback.answer(texts.STALE_REMINDER, show_alert=True)
+        return
+    user = await load_user(callback, repo)
+    if user is None:
+        return
+    total = texts.step_count(content.routine)
+    step = min(max(callback_data.step, 0), total - 1)
+    workout = await build_today(user, repo, content, today)
+    await callback.answer()
+    with suppress(TelegramBadRequest):  # «message is not modified» при двойном нажатии
+        await message.edit_text(
+            texts.format_step(workout, content.routine, step),
+            reply_markup=kb.step_kb(workout, step, total),
+        )
