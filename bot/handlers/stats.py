@@ -44,14 +44,8 @@ async def on_play(callback: CallbackQuery, callback_data: kb.PlayCb, bot: Bot, r
         return
     number, measurement = found[0]
     await callback.answer()
-    chat_id = callback.from_user.id
     await bot.send_voice(
-        chat_id,
-        measurement.voice_precise_file_id,
-        caption=texts.voice_caption(number, measurement, "precise"),
-    )
-    await bot.send_voice(
-        chat_id,
-        measurement.voice_casual_file_id,
-        caption=texts.voice_caption(number, measurement, "casual"),
+        callback.from_user.id,
+        measurement.voice_file_id,
+        caption=texts.voice_caption(number, measurement),
     )

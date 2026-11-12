@@ -6,7 +6,7 @@ from datetime import date
 
 from aiogram.types import BotCommand
 
-from bot.content.models import ControlText, Exercise, TongueTwister
+from bot.content.models import ControlText, RoutineBlock
 from bot.domain.measurement import Measurement, days_until_measurement, is_measurement_due
 from bot.domain.user import Member, User
 from bot.domain.workout import Workout
@@ -15,9 +15,6 @@ def escape(text: str) -> str:
     # Кавычки в тексте сообщения экранировать не нужно — только <, > и &.
     return html.escape(text, quote=False)
 
-
-
-GROUP_NAMES = {"lips": "губы", "tongue": "язык", "cheeks": "щёки", "jaw": "челюсть"}
 
 COMMANDS = [
     BotCommand(command="today", description="Сет упражнений на сегодня"),
@@ -64,10 +61,10 @@ NOTHING_TO_CANCEL = "🤷 Отменять нечего."
 
 WELCOME = (
     "👋 Привет! Я помогу каждый день тренировать дикцию.\n\n"
-    "🗓 Каждый день — короткий сет минут на 14: артикуляционная гимнастика, чтение с пробкой, "
-    "скороговорка и пересказ.\n"
-    "📏 Раз в 2 недели — замер: читаешь один и тот же контрольный текст и записываешь два "
-    "голосовых, чтобы слышать прогресс.\n\n"
+    "🗓 Каждый день — короткий сет минут на 12: дыхание, разминка, согласные, окончания "
+    "и чтение вслух.\n"
+    "📏 Раз в 2 недели — замер: читаешь один и тот же контрольный текст и записываешь "
+    "голосовое, чтобы слышать прогресс.\n\n"
     "⏰ Во сколько присылать напоминание? Напиши время в формате ЧЧ:ММ, например 08:30."
 )
 BAD_TIME = "🤔 Не понял время. Напиши в формате ЧЧ:ММ, например 08:30."
@@ -103,71 +100,45 @@ def welcome_back(user: User) -> str:
 ALREADY_DONE_TODAY = "✅ Сегодня уже выполнено! Следующий сет — завтра 🌙"
 STALE_REMINDER = "⏳ Это сет за другой день. Сегодняшний: /today"
 NUMBERS = ("1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣")
+NO_TIME = "Нет времени? Прочитай хотя бы блок 5 и нажми «Выполнил ✅» — день засчитан."
 
 
-FINISHER = (
-    "Заверши: расслабленно подуй сквозь губы, как лошадь ('тпру-у-у'), 10-15 секунд — "
-    "снимет остаточное напряжение."
-)
+def minutes(seconds: int) -> str:
+    """90 → «≈1,5 мин», 60 → «≈1 мин»: блоки короткие, точнее полминуты не нужно."""
+    halves = round(seconds / 30)
+    whole, half = divmod(max(halves, 1), 2)
+    if not whole:
+        return "≈0,5 мин"
+    return f"≈{whole},5 мин" if half else f"≈{whole} мин"
 
 
-def format_amount(exercise: Exercise) -> str:
-    if exercise.mode == "continuous":
-        return f"выполняй {exercise.duration_sec} сек"
-    amount = f"{exercise.reps} {plural(exercise.reps, ('повторение', 'повторения', 'повторений'))}"
-    if exercise.duration_sec:
-        amount += f", ~{exercise.duration_sec} сек"
-    return amount
-
-
-def format_exercise(number: int, exercise: Exercise, with_instructions: bool) -> str:
-    lines = [
-        f"{NUMBERS[number - 1]} <b>{escape(exercise.name)}</b> "
-        f"({GROUP_NAMES[exercise.muscle_group]}) — {format_amount(exercise)}"
-    ]
-    if with_instructions:
-        lines.append(f"<i>{escape(exercise.instructions)}</i>")
-        if exercise.caution:
-            lines.append(f"⚠️ {escape(exercise.caution)}")
+def format_block(number: int, block: RoutineBlock) -> str:
+    lines = [f"{NUMBERS[number - 1]} <b>{escape(block.title)}</b> · {minutes(block.duration_sec)}"]
+    lines += [escape(line) for line in block.instructions]
     return "\n".join(lines)
 
 
-def format_workout(workout: Workout, with_instructions: bool = False) -> str:
-    """Сет на день. Свёрнуто — без инструкций и предупреждений; абзац и скороговорка всегда целиком."""
-    exercises = [
-        format_exercise(number, e, with_instructions)
-        for number, e in enumerate(workout.exercises, start=1)
-    ]
-    # С инструкциями каждое упражнение — несколько строк, их разделяем пустой строкой.
-    separator = "\n\n" if with_instructions else "\n"
-    lines = [
-        f"🎯 <b>Сет на {workout.date:%d.%m}</b> · ≈14 минут",
-        "",
-        "👄 <b>А. Артикуляционная гимнастика</b> · 3-4 мин",
-        "",
-        separator.join(exercises),
-        "",
-        f"🐴 {escape(FINISHER)}",
-    ]
-    lines += [
-        "",
-        "✏️ <b>Б. Метод сопротивления</b> · 4 мин",
-        "Зажми пробку или карандаш в зубах и 3 минуты читай абзац вслух, стараясь "
-        "говорить чётко. Затем 1 минуту — тот же абзац без преграды.",
-        f"<blockquote>{escape(workout.reading.text)}</blockquote>",
-        "👅 <b>В. Скороговорка дня</b> · 3 мин",
-        f"<blockquote>{escape(workout.twister.text)}</blockquote>",
-        "Беззвучно, одной артикуляцией → шёпотом → вслух. "
-        "Несколько повторов, каждый раз чуть быстрее.",
-        "",
-        "🗣 <b>Г. Пересказ</b> · 1-2 мин",
-        "Не глядя в текст, перескажи абзац из блока Б своими словами — расслабленно, "
-        "в обычном темпе, как будто рассказываешь другу. Следи, чтобы чёткость не "
-        "пропадала, когда говоришь не по бумажке.",
-        "",
-        "Когда закончишь — жми кнопку 👇",
-    ]
-    return "\n".join(lines)
+def format_workout(workout: Workout, routine: list[RoutineBlock]) -> str:
+    """Сет на день: фиксированные блоки из daily_routine.json и чтение вслух последним."""
+    blocks = [format_block(number, block) for number, block in enumerate(routine, start=1)]
+    reading = "\n".join(
+        [
+            f"{NUMBERS[len(routine)]} <b>Чтение вслух</b> · ≈3–4 мин — главный блок",
+            "Первую минуту читай с карандашом или пробкой в зубах (закусить за клыки), затем без "
+            "неё. Читай медленно и чётко, контролируй каждое слово, особенно окончания "
+            "(не «Наташ», а «Наташа»).",
+            f"<blockquote>{escape(workout.reading.text)}</blockquote>",
+        ]
+    )
+    return "\n\n".join(
+        [
+            f"🎯 <b>Сет на {workout.date:%d.%m}</b> · ≈12 минут",
+            *blocks,
+            reading,
+            "Когда закончишь — жми кнопку 👇",
+            f"⏱ {NO_TIME}",
+        ]
+    )
 
 
 PRAISE = (
@@ -252,30 +223,21 @@ def measurement_not_due(user: User, today: date) -> str:
     )
 
 
-def measurement_material(control: ControlText, twisters: list[TongueTwister]) -> str:
-    lines = [
-        "📏 <b>Замер</b>",
-        "",
-        "📜 <b>Контрольный текст</b>",
-        escape(control.text),
-        "",
-        "👅 <b>Скороговорки</b>",
-    ]
-    lines += [f"{NUMBERS[i - 1]} {escape(t.text)}" for i, t in enumerate(twisters, start=1)]
-    return "\n".join(lines)
+def measurement_material(control: ControlText) -> str:
+    return "\n".join(
+        [
+            "📏 <b>Замер</b>",
+            "",
+            "Прочитай контрольный текст и пришли голосовым 🎙",
+            f"<blockquote>{escape(control.text)}</blockquote>",
+            "/cancel — прервать замер",
+        ]
+    )
 
 
-MEASUREMENT_STEP_PRECISE = (
-    "<b>Шаг 1 из 2.</b> Прочитай текст и скороговорки <b>максимально чётко</b> — "
-    "как на экзамене — и пришли голосовым 🎙\n\n/cancel — прервать замер"
-)
-MEASUREMENT_STEP_CASUAL = (
-    "<b>Шаг 2 из 2.</b> Теперь прочитай всё ещё раз <b>расслабленно, как будто "
-    "рассказываешь другу</b>. Не старайся специально — нужна обычная речь 🎙"
-)
 WAITING_VOICE = "Жду голосовое сообщение 🎙 (/cancel — прервать замер)"
 MEASUREMENT_NOTES = (
-    "👍 Записал оба голосовых. 📝 Хочешь добавить заметку о самочувствии или прогрессе? "
+    "👍 Записал голосовое. 📝 Хочешь добавить заметку о самочувствии или прогрессе? "
     "Напиши текстом — или нажми «Пропустить»."
 )
 
@@ -298,13 +260,12 @@ def progress(measurements: list[Measurement]) -> str:
         lines.append(f"<b>№{number}</b> · {m.date:%d.%m.%Y}")
         if m.notes:
             lines.append(f"   <i>{escape(m.notes)}</i>")
-    lines += ["", "🎧 Нажми на номер, чтобы переслушать оба голосовых."]
+    lines += ["", "🎧 Нажми на номер, чтобы переслушать голосовое."]
     return "\n".join(lines)
 
 
-def voice_caption(number: int, m: Measurement, kind: str) -> str:
-    title = "🎯 максимально чётко" if kind == "precise" else "😌 расслабленно"
-    return f"№{number} · {m.date:%d.%m.%Y} · {title}"
+def voice_caption(number: int, m: Measurement) -> str:
+    return f"№{number} · {m.date:%d.%m.%Y}"
 
 
 def sticker_file_id(file_id: str) -> str:

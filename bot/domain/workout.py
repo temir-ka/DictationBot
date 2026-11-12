@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Protocol, TypeVar
 
-from bot.content.models import MUSCLE_GROUPS, Content, Exercise, ReadingText, TongueTwister
+from bot.content.models import Content, ReadingText
 
 
 class _HasId(Protocol):
@@ -17,44 +17,27 @@ T = TypeVar("T", bound=_HasId)
 
 @dataclass(frozen=True, slots=True)
 class History:
-    """Что было в выполненных сетах до сегодняшнего дня (в хронологическом порядке)."""
+    """Абзацы из выполненных сетов до сегодняшнего дня (в хронологическом порядке)."""
 
-    last_exercise_ids: frozenset[str] = frozenset()
-    twister_ids: tuple[str, ...] = ()
     reading_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class Workout:
+    """Сет на день: блоки 1-4 фиксированы (content.routine), меняется только абзац для чтения."""
+
     date: date
-    exercises: tuple[Exercise, ...]  # по одному на группу, в порядке MUSCLE_GROUPS
     reading: ReadingText
-    twister: TongueTwister
 
 
 def build_workout(user_id: int, today: date, content: Content, history: History) -> Workout:
-    """Случайный сет на день.
+    """Сет на день.
 
     Генератор засеян пользователем и датой, а история берётся только до сегодняшнего дня,
-    поэтому напоминание, /today и кнопка «Выполнил» в течение дня видят один и тот же сет.
+    поэтому напоминание, /today и кнопка «Выполнил» в течение дня видят один и тот же абзац.
     """
     rng = random.Random(f"{user_id}:{today.isoformat()}")
-    exercises = tuple(
-        _pick_exercise(content.exercises_in(group), history.last_exercise_ids, rng)
-        for group in MUSCLE_GROUPS
-    )
-    return Workout(
-        date=today,
-        exercises=exercises,
-        reading=pick_unused(content.reading_texts, history.reading_ids, rng),
-        twister=pick_unused(content.tongue_twisters, history.twister_ids, rng),
-    )
-
-
-def _pick_exercise(pool: Sequence[Exercise], last_ids: frozenset[str], rng: random.Random) -> Exercise:
-    # Не повторяем упражнение из прошлого сета, если в группе есть из чего выбрать.
-    fresh = [e for e in pool if e.id not in last_ids]
-    return rng.choice(fresh or pool)
+    return Workout(date=today, reading=pick_unused(content.reading_texts, history.reading_ids, rng))
 
 
 def pick_unused(pool: Sequence[T], used_ids: Sequence[str], rng: random.Random) -> T:

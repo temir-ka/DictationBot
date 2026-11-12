@@ -1,5 +1,4 @@
 import asyncio
-import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date, time
@@ -104,48 +103,31 @@ class Repo:
         """Сохраняет выполнение и обновлённого пользователя одной транзакцией."""
         async with self._transaction():
             await self._conn.execute(
-                "INSERT INTO completions (user_id, date, exercise_ids, twister_id, reading_text_id)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (
-                    user.id,
-                    workout.date.isoformat(),
-                    json.dumps([e.id for e in workout.exercises]),
-                    workout.twister.id,
-                    workout.reading.id,
-                ),
+                "INSERT INTO completions (user_id, date, reading_text_id) VALUES (?, ?, ?)",
+                (user.id, workout.date.isoformat(), workout.reading.id),
             )
             await self._update_user(user)
 
     async def workout_history(self, user_id: int, before: date) -> History:
         async with self._conn.execute(
-            "SELECT exercise_ids, twister_id, reading_text_id FROM completions"
-            " WHERE user_id = ? AND date < ? ORDER BY date",
+            "SELECT reading_text_id FROM completions WHERE user_id = ? AND date < ? ORDER BY date",
             (user_id, before.isoformat()),
         ) as cursor:
             rows = await cursor.fetchall()
-        if not rows:
-            return History()
-        return History(
-            last_exercise_ids=frozenset(json.loads(rows[-1]["exercise_ids"])),
-            twister_ids=tuple(row["twister_id"] for row in rows),
-            reading_ids=tuple(row["reading_text_id"] for row in rows),
-        )
+        return History(reading_ids=tuple(row["reading_text_id"] for row in rows))
 
     # --- measurements ---
 
     async def add_measurement(self, measurement: Measurement, user: User) -> int:
         async with self._transaction():
             cursor = await self._conn.execute(
-                "INSERT INTO measurements (user_id, date, control_text_id, twister_ids,"
-                " voice_precise_file_id, voice_casual_file_id, notes)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO measurements (user_id, date, control_text_id, voice_file_id, notes)"
+                " VALUES (?, ?, ?, ?, ?)",
                 (
                     measurement.user_id,
                     measurement.date.isoformat(),
                     measurement.control_text_id,
-                    json.dumps(list(measurement.twister_ids)),
-                    measurement.voice_precise_file_id,
-                    measurement.voice_casual_file_id,
+                    measurement.voice_file_id,
                     measurement.notes,
                 ),
             )
@@ -157,13 +139,6 @@ class Repo:
             "SELECT * FROM measurements WHERE user_id = ? ORDER BY id", (user_id,)
         ) as cursor:
             return [_row_to_measurement(row) for row in await cursor.fetchall()]
-
-    async def last_measurement(self, user_id: int) -> Measurement | None:
-        async with self._conn.execute(
-            "SELECT * FROM measurements WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-        return _row_to_measurement(row) if row else None
 
 
 def _dump_date(value: date | None) -> str | None:
@@ -202,8 +177,6 @@ def _row_to_measurement(row: aiosqlite.Row) -> Measurement:
         user_id=row["user_id"],
         date=date.fromisoformat(row["date"]),
         control_text_id=row["control_text_id"],
-        twister_ids=tuple(json.loads(row["twister_ids"])),
-        voice_precise_file_id=row["voice_precise_file_id"],
-        voice_casual_file_id=row["voice_casual_file_id"],
+        voice_file_id=row["voice_file_id"],
         notes=row["notes"],
     )

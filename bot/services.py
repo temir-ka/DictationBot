@@ -27,8 +27,8 @@ async def send_workout(bot: Bot, user: User, repo: Repo, content: Content, today
     workout = await build_today(user, repo, content, today)
     await bot.send_message(
         user.id,
-        texts.format_workout(workout),
-        reply_markup=kb.workout_kb(workout, showing_instructions=False, with_done=True),
+        texts.format_workout(workout, content.routine),
+        reply_markup=kb.workout_kb(workout),
     )
     if is_measurement_due(user, today):
         await bot.send_message(

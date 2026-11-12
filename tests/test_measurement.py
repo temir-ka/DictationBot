@@ -1,15 +1,9 @@
-import random
 from datetime import timedelta
 
-from bot.content.models import TongueTwister
-from bot.domain.measurement import (
-    days_until_measurement,
-    is_measurement_due,
-    pick_measurement_twisters,
-)
+from bot import texts
+from bot.domain.measurement import Measurement, days_until_measurement, is_measurement_due
 from tests.conftest import TODAY, make_user
-
-POOL = [TongueTwister(id=f"t{i}", text="...") for i in range(6)]
+from tests.test_access import run_with_repo
 
 
 def test_first_measurement_is_due_immediately():
@@ -22,17 +16,19 @@ def test_due_every_14_days():
     assert days_until_measurement(make_user(last_measurement_at=TODAY - timedelta(days=4)), TODAY) == 10
 
 
-def test_twisters_avoid_previous_measurement():
-    previous = {"t0", "t1", "t2"}
-    picked = pick_measurement_twisters(POOL, previous, random.Random(1))
-    assert len(picked) == 3
-    assert not {t.id for t in picked} & previous
+def test_material_has_only_control_text(content):
+    text = texts.measurement_material(content.control_text)
+    assert texts.escape(content.control_text.text) in text
+    assert "Скороговорк" not in text
 
 
-def test_twisters_reuse_previous_when_pool_is_small():
-    picked = pick_measurement_twisters(POOL[:3], {"t0", "t1"}, random.Random(1))
-    assert len({t.id for t in picked}) == 3
+def test_measurement_with_one_voice_round_trip(tmp_path):
+    async def scenario(repo):
+        user = make_user(id=1)
+        await repo.create_user(user)
+        m = Measurement(user_id=1, date=TODAY, control_text_id="ctrl", voice_file_id="v1", notes="ok")
+        await repo.add_measurement(m, user)
+        return await repo.list_measurements(1)
 
-
-def test_twisters_with_tiny_pool():
-    assert len(pick_measurement_twisters(POOL[:1], set(), random.Random(1))) == 1
+    [saved] = run_with_repo(tmp_path, scenario)
+    assert (saved.voice_file_id, saved.notes, saved.date) == ("v1", "ok", TODAY)

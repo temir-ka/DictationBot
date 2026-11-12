@@ -1,6 +1,5 @@
-"""Замер: контрольный текст + скороговорки → голосовое precise → голосовое casual → заметка."""
+"""Замер: контрольный текст → голосовое → необязательная заметка."""
 
-import random
 from dataclasses import replace
 
 from aiogram import Bot, F, Router
@@ -14,7 +13,7 @@ from bot import texts
 from bot.config import Settings
 from bot.content.models import Content
 from bot.db.repo import Repo
-from bot.domain.measurement import Measurement, is_measurement_due, pick_measurement_twisters
+from bot.domain.measurement import Measurement, is_measurement_due
 from bot.domain.user import User
 from bot.handlers.common import NOT_COMMAND, load_user, remove_markup
 from bot.services import send_sticker
@@ -24,8 +23,7 @@ router = Router(name="measurement")
 
 
 class MeasurementFlow(StatesGroup):
-    precise = State()
-    casual = State()
+    voice = State()
     notes = State()
 
 
@@ -40,7 +38,7 @@ async def cmd_measure(
 ) -> None:
     user = await load_user(message, repo)
     if user is not None:
-        await _start(user, state, bot, repo, content, settings)
+        await _start(user, state, bot, content, settings)
 
 
 @router.callback_query(kb.MeasureCb.filter(F.action == "start"))
@@ -57,7 +55,7 @@ async def on_measure_start(
         return
     await callback.answer()
     await remove_markup(callback)
-    await _start(user, state, bot, repo, content, settings)
+    await _start(user, state, bot, content, settings)
 
 
 @router.callback_query(kb.MeasureCb.filter(F.action == "later"))
@@ -68,40 +66,21 @@ async def on_measure_later(callback: CallbackQuery, bot: Bot) -> None:
 
 
 async def _start(
-    user: User, state: FSMContext, bot: Bot, repo: Repo, content: Content, settings: Settings
+    user: User, state: FSMContext, bot: Bot, content: Content, settings: Settings
 ) -> None:
     today = local_today(settings.timezone)
     if not is_measurement_due(user, today):
         await bot.send_message(user.id, texts.measurement_not_due(user, today))
         return
 
-    last = await repo.last_measurement(user.id)
-    twisters = pick_measurement_twisters(
-        content.tongue_twisters,
-        previous_ids=last.twister_ids if last else (),
-        rng=random.Random(),
-    )
-    await state.set_state(MeasurementFlow.precise)
-    await state.set_data(
-        {
-            "control_text_id": content.control_text.id,
-            "twister_ids": [t.id for t in twisters],
-        }
-    )
-    await bot.send_message(user.id, texts.measurement_material(content.control_text, twisters))
-    await bot.send_message(user.id, texts.MEASUREMENT_STEP_PRECISE)
+    await state.set_state(MeasurementFlow.voice)
+    await state.set_data({"control_text_id": content.control_text.id})
+    await bot.send_message(user.id, texts.measurement_material(content.control_text))
 
 
-@router.message(MeasurementFlow.precise, F.voice)
-async def on_precise_voice(message: Message, state: FSMContext) -> None:
-    await state.update_data(voice_precise_file_id=message.voice.file_id)
-    await state.set_state(MeasurementFlow.casual)
-    await message.answer(texts.MEASUREMENT_STEP_CASUAL)
-
-
-@router.message(MeasurementFlow.casual, F.voice)
-async def on_casual_voice(message: Message, state: FSMContext) -> None:
-    await state.update_data(voice_casual_file_id=message.voice.file_id)
+@router.message(MeasurementFlow.voice, F.voice)
+async def on_voice(message: Message, state: FSMContext) -> None:
+    await state.update_data(voice_file_id=message.voice.file_id)
     await state.set_state(MeasurementFlow.notes)
     await message.answer(texts.MEASUREMENT_NOTES, reply_markup=kb.skip_notes_kb())
 
@@ -152,9 +131,7 @@ async def _finish(
             user_id=user.id,
             date=today,
             control_text_id=data["control_text_id"],
-            twister_ids=tuple(data["twister_ids"]),
-            voice_precise_file_id=data["voice_precise_file_id"],
-            voice_casual_file_id=data["voice_casual_file_id"],
+            voice_file_id=data["voice_file_id"],
             notes=notes,
         )
         await repo.add_measurement(measurement, replace(user, last_measurement_at=today))
@@ -164,9 +141,8 @@ async def _finish(
     await send_sticker(bot, user_id, content.stickers.measurement_saved)
 
 
-# --- всё остальное во время записи голосовых ---
+# --- всё остальное во время записи голосового ---
 
-@router.message(MeasurementFlow.precise)
-@router.message(MeasurementFlow.casual)
+@router.message(MeasurementFlow.voice)
 async def on_waiting_voice(message: Message) -> None:
     await message.answer(texts.WAITING_VOICE)

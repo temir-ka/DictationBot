@@ -16,7 +16,6 @@ from bot.content.loader import load_content
 from bot.db.connection import connect
 from bot.db.repo import Repo
 from bot.handlers import routers
-from bot.keyboards import ensure_callbacks_fit
 from bot.middlewares import AccessMiddleware
 from bot.scheduler.jobs import midnight_job
 from bot.scheduler.setup import ReminderScheduler
@@ -29,7 +28,6 @@ async def main() -> None:
     )
     settings = Settings()
     content = load_content(settings.data_dir)
-    ensure_callbacks_fit(content)
     conn = await connect(settings.db_path, settings.migrations_dir)
     repo = Repo(conn)
     await repo.allow_user(settings.owner_id, None, local_today(settings.timezone))
